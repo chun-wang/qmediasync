@@ -139,8 +139,8 @@ func GetOldLogs(c *gin.Context) {
 func DownloadLogFile(c *gin.Context) {
 	// 获取日志文件路径参数
 	logPath := c.Query("path")
-	if logPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未提供日志文件路径"})
+	if logPath == "" || strings.Contains(logPath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未提供日志文件路径或路径包含不合法字符"})
 		return
 	}
 

@@ -796,8 +796,8 @@ func GetScrapeRecords(c *gin.Context) {
 func ScrapeTmpImage(c *gin.Context) {
 	imagePath := c.Query("path")
 	mediaType := models.MediaType(c.Query("type"))
-	if imagePath == "" {
-		c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "路径不能为空", Data: nil})
+	if imagePath == "" || strings.Contains(imagePath, "..") {
+		c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "路径不能为空或不合法", Data: nil})
 		return
 	}
 	imageRootPath := filepath.Join(helpers.ConfigDir, "tmp", "刮削临时文件")
