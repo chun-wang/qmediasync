@@ -6,16 +6,11 @@ import (
 	"Q115-STRM/internal/notificationmanager"
 	"Q115-STRM/internal/synccron"
 	"context"
+	"fmt"
 	"strconv"
 	"time"
-)
 
-// TaskType 任务类型枚举
-type TaskType string
-
-const (
-	TaskTypeStrm   TaskType = "strm"
-	TaskTypeScrape TaskType = "scrape"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 // checkAndExtractSingleParam 检查并提取单个任务参数
@@ -251,32 +246,32 @@ func runScrapeTaskSync(taskID uint) {
 
 // SyncStrmInc 执行增量STRM同步并在完成后发送通知
 // args: 可选参数，传入同步目录ID时只同步指定目录
-func SyncStrmInc(args []string) string {
+func SyncStrmInc(args []string) helpers.CommandResponse {
 	if errMsg, _ := checkAndExtractSingleParam(args); errMsg != "" {
-		return errMsg
+		return helpers.CommandResponse{Text: errMsg}
 	}
 	_, taskID := checkAndExtractSingleParam(args)
-	return runStrmTask(taskID, false)
+	return helpers.CommandResponse{Text: runStrmTask(taskID, false)}
 }
 
 // SyncStrnFull 执行全量STRM同步并在完成后发送通知
 // args: 可选参数，传入同步目录ID时只同步指定目录
-func SyncStrnFull(args []string) string {
+func SyncStrnFull(args []string) helpers.CommandResponse {
 	if errMsg, _ := checkAndExtractSingleParam(args); errMsg != "" {
-		return errMsg
+		return helpers.CommandResponse{Text: errMsg}
 	}
 	_, taskID := checkAndExtractSingleParam(args)
-	return runStrmTask(taskID, true)
+	return helpers.CommandResponse{Text: runStrmTask(taskID, true)}
 }
 
 // Scrape 执行刮削任务并在完成后发送通知
 // args: 可选参数，传入刮削目录ID时只执行指定目录的刮削
-func Scrape(args []string) string {
+func Scrape(args []string) helpers.CommandResponse {
 	if errMsg, _ := checkAndExtractSingleParam(args); errMsg != "" {
-		return errMsg
+		return helpers.CommandResponse{Text: errMsg}
 	}
 	_, taskID := checkAndExtractSingleParam(args)
-	return runScrapeTask(taskID)
+	return helpers.CommandResponse{Text: runScrapeTask(taskID)}
 }
 
 // waitForTasksCompletion 等待指定任务完成
@@ -480,15 +475,153 @@ func StrmThenScrape(args []string) string {
 	return runStrmThenScrape(extractedIDs)
 }
 
+// ParseStrmPathArgs 解析get_strm_path命令的参数
+func ParseStrmPathArgs(args []string) (int, int) {
+	page := 1
+	pageSize := 20
+
+	// 解析参数
+	if len(args) >= 1 && args[0] != "" {
+		if num, err := strconv.Atoi(args[0][1:]); err == nil && num > 0 {
+			page = num
+		}
+	}
+
+	if len(args) >= 2 && args[1] != "" {
+		if num, err := strconv.Atoi(args[1][1:]); err == nil && num > 0 {
+			pageSize = num
+		}
+	}
+
+	return page, pageSize
+}
+
+// getStrmPath 获取同步路径列表
+// args: 可选参数，传入页码和每页数量，格式为 #页码 #每页数量
+func getStrmPath(args []string) helpers.CommandResponse {
+	page, pageSize := ParseStrmPathArgs(args)
+
+	// 获取同步路径列表
+	syncPaths, total := models.GetSyncPathList(page, pageSize, false, "")
+
+	// 格式化输出
+	result := "📋 STRM同步路径列表\n"
+	result += fmt.Sprintf("第 %d 页，共 %d 条记录\n\n", page, total)
+
+	for _, sp := range syncPaths {
+		status := synccron.CheckNewTaskStatus(sp.ID, synccron.SyncTaskTypeStrm)
+		statusStr := "⏸️ 空闲"
+		switch status {
+		case synccron.TaskStatusRunning:
+			statusStr = "🔄 运行中"
+		case synccron.TaskStatusWaiting:
+			statusStr = "⏳ 等待中"
+		}
+
+		result += fmt.Sprintf("  ID:#%d\n", sp.ID)
+		result += fmt.Sprintf("  原始路径：%s\n", sp.RemotePath)
+		result += fmt.Sprintf("  目标路径：%s\n", sp.LocalPath)
+		result += fmt.Sprintf("  状态: %s\n", statusStr)
+		result += fmt.Sprintf("  来源: %s\n", sp.SourceType)
+		result += fmt.Sprintf("  最后同步: %s\n\n", time.Unix(sp.UpdatedAt, 0).Format("2006-01-02 15:04"))
+	}
+
+	// 构建内联键盘
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, sp := range syncPaths {
+		row := tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("#%d (增量同步)", sp.ID),
+				fmt.Sprintf("strm_inc #%d", sp.ID),
+			),
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("#%d (全量同步)", sp.ID),
+				fmt.Sprintf("strm_sync #%d", sp.ID),
+			),
+		)
+		rows = append(rows, row)
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	return helpers.CommandResponse{
+		Text:        result,
+		ReplyMarkup: keyboard,
+	}
+}
+
+// ParseScrapePathArgs 解析get_scrape_path命令的参数
+func ParseScrapePathArgs(args []string) string {
+	sourceType := ""
+
+	// 解析参数
+	if len(args) >= 1 && args[0] != "" {
+		sourceType = args[0][1:]
+	}
+
+	return sourceType
+}
+
+// getScrapePath 获取刮削路径列表
+// args: 可选参数，传入来源类型，格式为 #来源类型
+func getScrapePath(args []string) helpers.CommandResponse {
+	sourceType := ParseScrapePathArgs(args)
+
+	// 获取刮削路径列表
+	scrapePaths := models.GetScrapePathes(sourceType)
+
+	// 格式化输出
+	result := "🧹 刮削路径列表\n"
+	result += fmt.Sprintf("共 %d 条记录\n\n", len(scrapePaths))
+
+	for _, sp := range scrapePaths {
+		status := synccron.CheckNewTaskStatus(sp.ID, synccron.SyncTaskTypeScrape)
+		statusStr := "⏸️ 空闲"
+		switch status {
+		case synccron.TaskStatusRunning:
+			statusStr = "🔄 运行中"
+		case synccron.TaskStatusWaiting:
+			statusStr = "⏳ 等待中"
+		}
+
+		result += fmt.Sprintf("  ID:#%d\n", sp.ID)
+		result += fmt.Sprintf("  原始路径：%s\n", sp.SourcePath)
+		result += fmt.Sprintf("  目标路径：%s\n", sp.DestPath)
+		result += fmt.Sprintf("  状态: %s\n", statusStr)
+		result += fmt.Sprintf("  来源: %s\n", sp.SourceType)
+		result += fmt.Sprintf("  媒体类型: %s\n", sp.MediaType)
+		result += fmt.Sprintf("  最后刮削: %s\n\n", time.Unix(sp.UpdatedAt, 0).Format("2006-01-02 15:04"))
+	}
+
+	// 构建内联键盘
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, sp := range scrapePaths {
+		button := tgbotapi.NewInlineKeyboardButtonData(
+			fmt.Sprintf("#%d (执行刮削)", sp.ID),
+			fmt.Sprintf("scrape #%d", sp.ID),
+		)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(button))
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	return helpers.CommandResponse{
+		Text:        result,
+		ReplyMarkup: keyboard,
+	}
+}
+
 func StartListenTelegramBot() {
 	mgr := notificationmanager.GlobalEnhancedNotificationManager
 
-	myCommands := map[string]func([]string) string{
-		"strm_inc":    SyncStrmInc,
-		"strm_sync":   SyncStrnFull,
-		"scrape":      Scrape,
-		"scrape_strm": ScrapeThenStrm,
-		"strm_scrape": StrmThenScrape,
+	myCommands := map[string]func([]string) helpers.CommandResponse{
+		"strm_inc":        SyncStrmInc,
+		"strm_sync":       SyncStrnFull,
+		"scrape":          Scrape,
+		"get_strm_path":   getStrmPath,
+		"get_scrape_path": getScrapePath,
+		// "scrape_strm": ScrapeThenStrm,
+		// "strm_scrape": StrmThenScrape,
 	}
 
 	mgr.RegisterTelegramCommands(myCommands)
