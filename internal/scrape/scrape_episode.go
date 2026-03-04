@@ -25,7 +25,7 @@ mainloop:
 		select {
 		case <-t.ctx.Done():
 			// 停止任务
-			helpers.AppLogger.Infof("刮削整理任务队列 %d 收到停止信号，退出", taskIndex)
+			helpers.AppLogger.Infof("集刮削整理任务队列 %d 收到停止信号，退出", taskIndex)
 			return
 		case mediaFileId, ok := <-t.episodeTasks:
 			if !ok {
