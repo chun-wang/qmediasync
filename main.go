@@ -543,18 +543,19 @@ func setRouter(r *gin.Engine) {
 				"isRelease": helpers.IsRelease,
 			})
 		})
-		api.GET("/announce", controllers.GetAnnounce)                     // 获取公告
-		api.POST("/database/repair", controllers.RepairDB)                // 更新系统设置
-		api.POST("/auth/115-qrcode-open", controllers.GetLoginQrCodeOpen) // 获取115开放平台登录二维码
-		api.POST("/auth/115-qrcode-status", controllers.GetQrCodeStatus)  // 查询115二维码扫码状态
-		api.GET("/115/status", controllers.Get115Status)                  // 查询115状态
-		api.GET("/115/oauth-url", controllers.GetOAuthUrl)                // 获取115 OAuth登录地址
-		api.POST("115/oauth-confirm", controllers.ConfirmOAuthCode)       // 确认OAuth登录
-		api.GET("/115/queue/stats", controllers.GetQueueStats)            // 获取115 OpenAPI请求队列统计数据
-		api.POST("/115/queue/rate-limit", controllers.SetQueueRateLimit)  // 设置115 OpenAPI请求队列速率限制
-		api.GET("/115/stats/daily", controllers.GetRequestStatsByDay)     // 获取115请求统计（按天）
-		api.GET("/115/stats/hourly", controllers.GetRequestStatsByHour)   // 获取115请求统计（按小时）
-		api.POST("/115/stats/clean", controllers.CleanOldRequestStats)    // 清理旧的请求统计数据
+		api.POST("/database/delete-all-table", controllers.DeleteAllTabble) // 删除所有表
+		api.GET("/announce", controllers.GetAnnounce)                       // 获取公告
+		api.POST("/database/repair", controllers.RepairDB)                  // 更新系统设置
+		api.POST("/auth/115-qrcode-open", controllers.GetLoginQrCodeOpen)   // 获取115开放平台登录二维码
+		api.POST("/auth/115-qrcode-status", controllers.GetQrCodeStatus)    // 查询115二维码扫码状态
+		api.GET("/115/status", controllers.Get115Status)                    // 查询115状态
+		api.GET("/115/oauth-url", controllers.GetOAuthUrl)                  // 获取115 OAuth登录地址
+		api.POST("115/oauth-confirm", controllers.ConfirmOAuthCode)         // 确认OAuth登录
+		api.GET("/115/queue/stats", controllers.GetQueueStats)              // 获取115 OpenAPI请求队列统计数据
+		api.POST("/115/queue/rate-limit", controllers.SetQueueRateLimit)    // 设置115 OpenAPI请求队列速率限制
+		api.GET("/115/stats/daily", controllers.GetRequestStatsByDay)       // 获取115请求统计（按天）
+		api.GET("/115/stats/hourly", controllers.GetRequestStatsByHour)     // 获取115请求统计（按小时）
+		api.POST("/115/stats/clean", controllers.CleanOldRequestStats)      // 清理旧的请求统计数据
 		// 百度网盘相关路由
 		api.GET("/baidupan/oauth-url", controllers.GetBaiDuPanOAuthUrl)           // 获取百度网盘OAuth登录地址
 		api.POST("/baidupan/oauth-confirm", controllers.ConfirmBaiDuPanOAuthCode) // 确认百度网盘OAuth登录
@@ -1096,7 +1097,35 @@ func StartConfigWebServer() {
 			return
 		}
 
-		c.JSON(200, gin.H{"success": true, "message": "数据库连接成功"})
+		var dbExists bool
+		err = sqlDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", req.Database).Scan(&dbExists)
+		if err != nil {
+			c.JSON(200, gin.H{"success": false, "error": "检查数据库失败: " + err.Error()})
+			return
+		}
+
+		if !dbExists {
+			c.JSON(200, gin.H{"success": true, "message": "数据库连接成功", "dbExists": false})
+			return
+		}
+
+		connStrDb := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			req.Host, req.Port, req.User, req.Password, req.Database)
+		sqlDBDb, err := sql.Open("postgres", connStrDb)
+		if err != nil {
+			c.JSON(200, gin.H{"success": true, "message": "数据库连接成功", "dbExists": true, "hasOtherTables": false})
+			return
+		}
+		defer sqlDBDb.Close()
+
+		var tableCount int
+		err = sqlDBDb.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT LIKE 'gorr_%'").Scan(&tableCount)
+		if err != nil {
+			c.JSON(200, gin.H{"success": true, "message": "数据库连接成功", "dbExists": true, "hasOtherTables": false})
+			return
+		}
+
+		c.JSON(200, gin.H{"success": true, "message": "数据库连接成功", "dbExists": true, "hasOtherTables": tableCount > 0})
 	})
 
 	r.POST("/api/config/save", func(c *gin.Context) {
@@ -1110,6 +1139,7 @@ func StartConfigWebServer() {
 			Database      string `json:"database"`
 			AdminUsername string `json:"adminUsername"`
 			AdminPassword string `json:"adminPassword"`
+			DropDatabase  bool   `json:"dropDatabase"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": err.Error()})
@@ -1121,6 +1151,17 @@ func StartConfigWebServer() {
 		if req.Engine == string(helpers.DbEnginePostgres) {
 			yamlConfig.Db.PostgresType = helpers.PostgresType(req.PostgresType)
 			if req.PostgresType == string(helpers.PostgresTypeExternal) {
+				if req.DropDatabase {
+					connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable",
+						req.Host, req.Port, req.User, req.Password)
+					sqlDB, err := sql.Open("postgres", connStr)
+					if err == nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						sqlDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", req.Database))
+						sqlDB.Close()
+					}
+				}
 				yamlConfig.Db.PostgresConfig = helpers.PostgresConfig{
 					Host:         req.Host,
 					Port:         req.Port,

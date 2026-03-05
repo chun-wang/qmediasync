@@ -131,7 +131,7 @@ func Backup(backupType string, reason string) error {
 		BackupType:    backupType,
 		CreatedReason: reason,
 	}
-	if err := db.Db.Create(record).Error; err != nil {
+	if err := db.Db.Save(record).Error; err != nil {
 		helpers.AppLogger.Errorf("创建备份记录失败: %v", err)
 		return err
 	}

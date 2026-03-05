@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>数据库配置 - QMediaSync</title>
+    <title>配置向导 - QMediaSync</title>
     <style>
         * {
             margin: 0;
@@ -206,7 +206,7 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="title">数据库配置</h1>
+        <h1 class="title">配置向导</h1>
 
         {{ if .isRestricted }}
         <div class="warning-box visible">
@@ -291,6 +291,7 @@
             postgresType: 'external'
         };
         let connectionTested = false;
+        let needDropDatabase = false;
 
         function goToEngineSelect() {
             const adminUsername = document.getElementById('adminUsername').value.trim();
@@ -392,6 +393,12 @@
                     btnTest.style.borderColor = '#28a745';
                     showMessage('success', result.message);
                     connectionTested = true;
+                    needDropDatabase = false;
+                    if (result.dbExists && result.hasOtherTables) {
+                        if (confirm('数据库已存在且包含数据表，是否清空该数据库？\n\n选择"确定"将删除并重建数据库(如果要完全重装请选择确定）\n选择"取消"将保留现有数据')) {
+                            needDropDatabase = true;
+                        }
+                    }
                     updateSaveButton();
                 } else {
                     btnTest.textContent = '测试连接';
@@ -431,7 +438,8 @@
                 engine: currentConfig.engine,
                 postgresType: currentConfig.postgresType,
                 adminUsername: document.getElementById('adminUsername').value.trim(),
-                adminPassword: document.getElementById('adminPassword').value
+                adminPassword: document.getElementById('adminPassword').value,
+                dropDatabase: needDropDatabase
             };
 
             if (currentConfig.engine === 'postgres' && currentConfig.postgresType === 'external') {

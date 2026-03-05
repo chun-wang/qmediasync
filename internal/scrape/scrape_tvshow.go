@@ -133,9 +133,8 @@ mainloop:
 		}
 		helpers.AppLogger.Infof("已加入 %d 个季到处理队列，等待刮削完成", len(tvshowTasks))
 		wg.Wait()
+		episodeWg.Wait() // 等待集处理队列完成
 	}
-	helpers.AppLogger.Infof("所有集都已加入处理队列，等待刮削完成")
-	episodeWg.Wait() // 等待集处理队列完成
 	helpers.AppLogger.Infof("所有集刮削整理任务都已完成，发送停止信号")
 	select {
 	case stopChan <- struct{}{}:

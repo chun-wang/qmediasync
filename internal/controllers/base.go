@@ -238,3 +238,13 @@ func GetAnnounce(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, APIResponse[any]{Code: Success, Message: "获取公告成功", Data: announces})
 }
+
+func DeleteAllTabble(c *gin.Context) {
+	// 重置数据库，删除所有表，重新初始化数据库
+	err := models.BatchDropTable()
+	if err != nil {
+		c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "删除数据库所有表失败: " + err.Error(), Data: nil})
+		return
+	}
+	c.JSON(http.StatusOK, APIResponse[any]{Code: Success, Message: "删除数据库所有表成功", Data: nil})
+}

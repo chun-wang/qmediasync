@@ -221,7 +221,7 @@ func restoreFromJsonFile[T any](backupDir string, modelName string, totalTable i
 			// helpers.AppLogger.Infof("%s 解析json成功: %d", modelName, restoredCount)
 		}
 		// 插入数据库
-		if err := db.Db.Create(&item).Error; err != nil {
+		if err := db.Db.Save(&item).Error; err != nil {
 			// return fmt.Errorf("插入数据库失败: %v", err)
 			helpers.AppLogger.Warnf("%s 插入数据库失败: %v", modelName, err)
 		} else {
