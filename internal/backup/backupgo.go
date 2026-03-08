@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"time"
 )
@@ -193,7 +194,7 @@ func Backup(backupType string, reason string) error {
 }
 
 // 备份账号信息
-func backupToJsonFile[T any](backupDir string, modelName string, totalTable int, count *int, model T) error {
+func backupToJsonFile(backupDir string, modelName string, totalTable int, count *int, model any) error {
 	// 打开一个文件用来写入
 	backupFilePath := filepath.Join(backupDir, modelName+".json")
 	backupFile, err := os.OpenFile(backupFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -206,28 +207,34 @@ func backupToJsonFile[T any](backupDir string, modelName string, totalTable int,
 	pageSize := 100
 	page := 0
 	totalCount := 0
+	typ := reflect.TypeOf(model)
+	sliceType := reflect.SliceOf(typ)
+	setCount := 0
 	for {
-		var records []T
-		if err := db.Db.Model(&model).Offset(page * pageSize).Limit(pageSize).Find(&records).Error; err != nil {
+		records := reflect.New(sliceType).Interface()
+		if err := db.Db.Model(model).Offset(page * pageSize).Limit(pageSize).Order("id").Find(records).Error; err != nil {
 			helpers.AppLogger.Errorf("查询%s失败: %v", modelName, err)
 			return err
 		}
-		if len(records) == 0 {
+		recordsValue := reflect.ValueOf(records).Elem()
+		if recordsValue.Len() == 0 {
 			helpers.AppLogger.Infof("查询%s完成", modelName)
 			break
 		}
 
-		// 写入文件
-		for _, record := range records {
-			// helpers.AppLogger.Infof("备份%s: %v", modelName, record)
-			// 序列化成json，然后写入文件中的末尾
+		for i := 0; i < recordsValue.Len(); i++ {
+			record := recordsValue.Index(i).Interface()
 			jsonStr := helpers.JsonString(record)
 			_, err := backupFile.WriteString(jsonStr + "\n")
 			if err != nil {
 				helpers.AppLogger.Errorf("写入%s备份文件失败: %v", modelName, err)
-				return err
 			}
 			totalCount++
+			setCount++
+			if setCount >= 10 {
+				setCount = 0
+				SetRunningResult("backup", fmt.Sprintf("已备份%s %d条", modelName, totalCount), totalTable, *count, "", false)
+			}
 		}
 		page++
 	}

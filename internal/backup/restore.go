@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -61,7 +62,7 @@ func Restore(filePath string) error {
 }
 
 // 从json文件还原到数据库
-func restoreFromJsonFile[T any](backupDir string, modelName string, totalTable int, count *int, model T) error {
+func restoreFromJsonFile(backupDir string, modelName string, totalTable int, count *int, model any) error {
 	backupFilePath := filepath.Join(backupDir, modelName+".json")
 	// 检查文件是否存在
 	if _, err := os.Stat(backupFilePath); os.IsNotExist(err) {
@@ -76,7 +77,7 @@ func restoreFromJsonFile[T any](backupDir string, modelName string, totalTable i
 	}
 	defer file.Close()
 	// 1. 删除表（如果存在）
-	err = db.Db.Migrator().DropTable(&model)
+	err = db.Db.Migrator().DropTable(model)
 	if err != nil {
 		// 处理错误
 		helpers.AppLogger.Warnf("删除表 %s 失败: %v", modelName, err)
@@ -86,7 +87,7 @@ func restoreFromJsonFile[T any](backupDir string, modelName string, totalTable i
 	}
 
 	// 2. 重新创建表
-	err = db.Db.AutoMigrate(&model)
+	err = db.Db.AutoMigrate(model)
 	if err != nil {
 		// 处理错误
 		helpers.AppLogger.Warnf("创建表 %s 失败: %v", modelName, err)
@@ -102,25 +103,33 @@ func restoreFromJsonFile[T any](backupDir string, modelName string, totalTable i
 	scanner := bufio.NewScanner(file)
 	// 统计还原数量
 	var restoredCount int
+	typ := reflect.TypeOf(model)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	setCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
-		// 解析json
-		var item T
-		if err := json.Unmarshal([]byte(line), &item); err != nil {
-			// return fmt.Errorf("解析json失败: %v", err)
+		// 使用反射创建新实例
+		item := reflect.New(typ).Interface()
+		if err := json.Unmarshal([]byte(line), item); err != nil {
 			helpers.AppLogger.Warnf("%s 解析json失败: %v", modelName, err)
 		} else {
-			// helpers.AppLogger.Infof("%s 解析json成功: %d", modelName, restoredCount)
-		}
-		// 插入数据库
-		if err := db.Db.Create(&item).Error; err != nil {
-			// return fmt.Errorf("插入数据库失败: %v", err)
-			helpers.AppLogger.Warnf("%s 插入数据库失败: %v", modelName, err)
-		} else {
-			// helpers.AppLogger.Infof("%s 插入数据库成功: %d", modelName, restoredCount)
+			// 插入数据库
+			if err := db.Db.Create(item).Error; err != nil {
+				helpers.AppLogger.Warnf("%s 插入数据库失败: %v", modelName, err)
+			}
 		}
 		restoredCount++
+		setCount++
+		if setCount >= 10 {
+			setCount = 0
+			SetRunningResult("restore", fmt.Sprintf("已还原 %d 条 %s 记录", restoredCount, modelName), totalTable, *count, "", false)
+		}
 	}
+	tableName := models.GetTableName(model)
+	// 重置表的主键序列
+	models.ResetSequence(tableName, "id")
 	*count++
 	SetRunningResult("restore", fmt.Sprintf("已还原 %d 条 %s 记录", restoredCount, modelName), totalTable, *count, "", false)
 	return nil

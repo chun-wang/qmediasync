@@ -18,7 +18,7 @@ type Migrator struct {
 }
 
 var MaxVersionCode = 32
-var AllTables = []interface{}{
+var AllTables = []any{
 	BackupConfig{}, BackupRecord{},
 	ApiKey{}, Settings{}, Sync{}, User{}, Account{},
 	SyncPath{}, SyncFile{}, SyncPathScrapePath{},
