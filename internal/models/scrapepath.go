@@ -13,8 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 type MediaType string
@@ -606,6 +610,191 @@ func (sp *ScrapePath) ToggleCron() error {
 	}
 	return db.Db.Model(&ScrapePath{}).Where("id = ?", sp.ID).Updates(map[string]interface{}{
 		"enable_cron": sp.EnableCron,
+	}).Error
+}
+
+// 验证Cron表达式是否有效
+func (sp *ScrapePath) ValidateCronExpression(cronExpr string) bool {
+	if cronExpr == "" {
+		return false
+	}
+	_, err := cron.ParseStandard(cronExpr)
+	return err == nil
+}
+
+// 解析Cron表达式为人类可读的描述
+func (sp *ScrapePath) ParseCronDescription(cronExpr string) string {
+	if cronExpr == "" {
+		return ""
+	}
+
+	parts := strings.Split(cronExpr, " ")
+	if len(parts) != 5 {
+		return "无效的Cron表达式"
+	}
+
+	minute := parts[0]
+	hour := parts[1]
+	day := parts[2]
+	month := parts[3]
+	weekday := parts[4]
+
+	var desc strings.Builder
+
+	// 处理分钟
+	if minute == "*" {
+		desc.WriteString("每分钟")
+	} else if strings.Contains(minute, "*/") {
+		interval := strings.TrimPrefix(minute, "*/")
+		desc.WriteString(fmt.Sprintf("每%s分钟", interval))
+	} else {
+		desc.WriteString(fmt.Sprintf("%s分", minute))
+	}
+
+	// 处理小时
+	if hour == "*" {
+		desc.WriteString("每小时")
+	} else if strings.Contains(hour, "*/") {
+		interval := strings.TrimPrefix(hour, "*/")
+		desc.WriteString(fmt.Sprintf("每%s小时", interval))
+	} else {
+		hourInt, _ := strconv.Atoi(hour)
+		if hourInt >= 0 && hourInt < 6 {
+			desc.WriteString(fmt.Sprintf("凌晨%s点", hour))
+		} else if hourInt >= 6 && hourInt < 9 {
+			desc.WriteString(fmt.Sprintf("早上%s点", hour))
+		} else if hourInt >= 9 && hourInt < 12 {
+			desc.WriteString(fmt.Sprintf("上午%s点", hour))
+		} else if hourInt >= 12 && hourInt < 14 {
+			desc.WriteString(fmt.Sprintf("中午%s点", hour))
+		} else if hourInt >= 14 && hourInt < 18 {
+			desc.WriteString(fmt.Sprintf("下午%s点", hour))
+		} else if hourInt >= 18 && hourInt < 22 {
+			desc.WriteString(fmt.Sprintf("晚上%s点", hour))
+		} else {
+			desc.WriteString(fmt.Sprintf("深夜%s点", hour))
+		}
+	}
+
+	// 处理日期
+	if day == "*" {
+		desc.WriteString("每天")
+	} else if strings.Contains(day, ",") {
+		days := strings.Split(day, ",")
+		desc.WriteString(fmt.Sprintf("每月%s号", strings.Join(days, "、")))
+	} else if strings.Contains(day, "-") {
+		rangeParts := strings.Split(day, "-")
+		if len(rangeParts) == 2 {
+			desc.WriteString(fmt.Sprintf("每月%s-%s号", rangeParts[0], rangeParts[1]))
+		}
+	} else if day != "*" {
+		desc.WriteString(fmt.Sprintf("每月%s号", day))
+	}
+
+	// 处理月份
+	if month == "*" {
+		// 不特别说明，表示每月
+	} else if strings.Contains(month, ",") {
+		months := strings.Split(month, ",")
+		monthNames := []string{"1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"}
+		var selectedMonths []string
+		for _, m := range months {
+			mInt, _ := strconv.Atoi(m)
+			if mInt >= 1 && mInt <= 12 {
+				selectedMonths = append(selectedMonths, monthNames[mInt-1])
+			}
+		}
+		if len(selectedMonths) > 0 {
+			desc.WriteString(fmt.Sprintf("（%s）", strings.Join(selectedMonths, "、")))
+		}
+	}
+
+	// 处理星期
+	weekdayNames := []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+	if weekday == "*" {
+		// 不特别说明，表示每天
+	} else if strings.Contains(weekday, ",") {
+		weekdays := strings.Split(weekday, ",")
+		var selectedDays []string
+		for _, w := range weekdays {
+			wInt, _ := strconv.Atoi(w)
+			if wInt >= 0 && wInt <= 6 {
+				selectedDays = append(selectedDays, weekdayNames[wInt])
+			}
+		}
+		if len(selectedDays) > 0 {
+			desc.WriteString(fmt.Sprintf("（%s）", strings.Join(selectedDays, "、")))
+		}
+	} else if strings.Contains(weekday, "-") {
+		rangeParts := strings.Split(weekday, "-")
+		if len(rangeParts) == 2 {
+			startInt, _ := strconv.Atoi(rangeParts[0])
+			endInt, _ := strconv.Atoi(rangeParts[1])
+			if startInt >= 0 && endInt <= 6 && startInt <= endInt {
+				var selectedDays []string
+				for i := startInt; i <= endInt; i++ {
+					selectedDays = append(selectedDays, weekdayNames[i])
+				}
+				if len(selectedDays) > 0 {
+					desc.WriteString(fmt.Sprintf("（%s）", strings.Join(selectedDays, "、")))
+				}
+			}
+		}
+	} else if weekday != "*" {
+		wInt, _ := strconv.Atoi(weekday)
+		if wInt >= 0 && wInt <= 6 {
+			desc.WriteString(fmt.Sprintf("（%s）", weekdayNames[wInt]))
+		}
+	}
+
+	result := desc.String()
+	if result == "" || result == "每分钟每小时" {
+		return "每分钟"
+	}
+
+	return result
+}
+
+// 获取下次执行时间
+func (sp *ScrapePath) GetNextCronRun(cronExpr string) (time.Time, error) {
+	if cronExpr == "" {
+		return time.Time{}, fmt.Errorf("cron表达式为空")
+	}
+
+	schedule, err := cron.ParseStandard(cronExpr)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return schedule.Next(time.Now()), nil
+}
+
+// 更新Cron表达式
+func (sp *ScrapePath) UpdateCronExpression(cronExpr string) error {
+	if cronExpr == "" {
+		return fmt.Errorf("cron表达式不能为空")
+	}
+
+	// 验证Cron表达式
+	if !sp.ValidateCronExpression(cronExpr) {
+		return fmt.Errorf("无效的cron表达式")
+	}
+
+	// 解析描述
+	description := sp.ParseCronDescription(cronExpr)
+
+	// 获取下次执行时间
+	nextRun, err := sp.GetNextCronRun(cronExpr)
+	if err != nil {
+		return fmt.Errorf("获取下次执行时间失败: %v", err)
+	}
+
+	// 更新数据库
+	return db.Db.Model(&ScrapePath{}).Where("id = ?", sp.ID).Updates(map[string]interface{}{
+		"cron_expression":   cronExpr,
+		"cron_description":  description,
+		"next_cron_run":     nextRun.Format("2006-01-02 15:04:05"),
+		"cron_enabled":      1,
 	}).Error
 }
 
