@@ -11,7 +11,7 @@ func TestInitManager(t *testing.T) {
 	// 重置默认管理器
 	defaultManager = nil
 
-	InitManager("http://proxy.example.com:8080", "https://gh.llkk.cc")
+	InitManager("http://proxy.example.com:8080")
 
 	if defaultManager == nil {
 		t.Error("InitManager应创建非nil的管理器")
@@ -29,8 +29,9 @@ func TestInitManager(t *testing.T) {
 		t.Errorf("期望HTTP代理为http://proxy.example.com:8080，实际为%v", defaultManager.httpProxy)
 	}
 
-	if defaultManager.githubProxyUrl != "https://gh.llkk.cc" {
-		t.Errorf("期望GitHub代理URL为https://gh.llkk.cc，实际为%v", defaultManager.githubProxyUrl)
+	// 验证GithubProxyURL常量
+	if GithubProxyURL != "https://gh.llkk.cc" {
+		t.Errorf("期望GithubProxyURL为https://gh.llkk.cc，实际为%v", GithubProxyURL)
 	}
 }
 

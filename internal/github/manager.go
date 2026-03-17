@@ -30,34 +30,35 @@ type GitHubAccess struct {
 // Manager GitHub访问管理器
 type Manager struct {
 	sync.RWMutex
-	current        *GitHubAccess
-	testTimeout    time.Duration // 测试超时时间
-	cacheValid     time.Duration // 缓存有效期
-	httpProxy      string        // HTTP代理
-	githubProxyUrl string        // GitHub代理URL
+	current     *GitHubAccess
+	testTimeout time.Duration // 测试超时时间
+	cacheValid  time.Duration // 缓存有效期
+	httpProxy   string        // HTTP代理
 }
+
+const (
+	// GithubProxyURL 内置GitHub代理URL（系统加速节点）
+	GithubProxyURL = "https://gh.llkk.cc"
+)
 
 var defaultManager *Manager
 
 // InitManager 初始化GitHub访问管理器
 // httpProxy - HTTP代理地址
-// githubProxyUrl - GitHub代理URL
-func InitManager(httpProxy, githubProxyUrl string) {
+func InitManager(httpProxy string) {
 	defaultManager = &Manager{
-		testTimeout:    3 * time.Second,  // 3秒测试超时
-		cacheValid:     10 * time.Minute, // 缓存10分钟
-		httpProxy:      httpProxy,
-		githubProxyUrl: githubProxyUrl,
+		testTimeout: 3 * time.Second,  // 3秒测试超时
+		cacheValid:  10 * time.Minute, // 缓存10分钟
+		httpProxy:   httpProxy,
 	}
 }
 
 // UpdateConfig 更新管理器的代理配置
-func UpdateConfig(httpProxy, githubProxyUrl string) {
+func UpdateConfig(httpProxy string) {
 	defaultManager.Lock()
 	defer defaultManager.Unlock()
 
 	defaultManager.httpProxy = httpProxy
-	defaultManager.githubProxyUrl = githubProxyUrl
 
 	// 清除缓存，以便使用新配置
 	defaultManager.current = nil
@@ -68,7 +69,7 @@ func UpdateConfig(httpProxy, githubProxyUrl string) {
 func GetManager() *Manager {
 	if defaultManager == nil {
 		// 使用空字符串初始化，后续可以通过UpdateConfig更新
-		InitManager("", "")
+		InitManager("")
 	}
 	return defaultManager
 }
@@ -167,26 +168,28 @@ func (m *Manager) GetBestConnection() (*GitHubAccess, error) {
 				return m.current, nil
 			}
 		}
+		// 如果用户配置了代理但代理不可用，直接返回错误
+		// 参考原始TestGithub逻辑：如果proxy != ""，返回failed
+		return nil, fmt.Errorf("用户配置的代理不可用: %s", m.httpProxy)
 	}
 
-	// 3. 测试GitHub代理URL
-	if m.githubProxyUrl != "" {
-		if m.TestConnection(ConnectionTypeGitHubProxy, m.githubProxyUrl) {
-			proxy, err := url.Parse(m.githubProxyUrl)
-			if err == nil {
-				m.current = &GitHubAccess{
-					Type: ConnectionTypeGitHubProxy,
-					Client: &http.Client{
-						Timeout:   30 * time.Second,
-						Transport: &http.Transport{Proxy: http.ProxyURL(proxy)},
-					},
-					ProxyURL:   m.githubProxyUrl,
-					LastTested: time.Now(),
-					Cached:     false,
-				}
-				log.Printf("GitHub连接方式: GitHub代理URL")
-				return m.current, nil
+	// 3. 测试GitHub代理URL（仅在用户未配置代理时）
+	// 使用内置的GitHub加速节点
+	if m.TestConnection(ConnectionTypeGitHubProxy, GithubProxyURL) {
+		proxy, err := url.Parse(GithubProxyURL)
+		if err == nil {
+			m.current = &GitHubAccess{
+				Type: ConnectionTypeGitHubProxy,
+				Client: &http.Client{
+					Timeout:   30 * time.Second,
+					Transport: &http.Transport{Proxy: http.ProxyURL(proxy)},
+				},
+				ProxyURL:   GithubProxyURL,
+				LastTested: time.Now(),
+				Cached:     false,
 			}
+			log.Printf("GitHub连接方式: GitHub代理URL (%s)", GithubProxyURL)
+			return m.current, nil
 		}
 	}
 

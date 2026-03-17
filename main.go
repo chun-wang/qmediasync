@@ -425,7 +425,7 @@ func initOthers() {
 	helpers.InitEventBus() // 初始化事件总线
 	models.LoadSettings()  // 从数据库加载设置
 	// 初始化GitHub访问管理器
-	github.InitManager(models.SettingsGlobal.HttpProxy, models.SettingsGlobal.GithubProxyUrl)
+	github.InitManager(models.SettingsGlobal.HttpProxy)
 	helpers.AppLogger.Infof("已加载配置，准备初始化115请求队列，线程数: %d", models.SettingsGlobal.FileDetailThreads)
 	qps := models.SettingsGlobal.FileDetailThreads
 	if qps <= 0 {
