@@ -162,6 +162,7 @@ func (c *Client) SetBaseUrl(baseUrl string) {
 type MediaInfoAI struct {
 	Name string `json:"name"`
 	Year int    `json:"year"`
+	Season string    `json:"season"`
 }
 
 func (c *Client) TakeMoiveName(filename string, prompt string) (*MediaInfoAI, error) {
