@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"Q115-STRM/internal/github"
 	"context"
 	"fmt"
 	"io"
@@ -477,24 +478,36 @@ func DownloadFileWithProgressWithoutContext(proxyUrl, downloadUrl string, fileNa
 	return DownloadFileWithProgress(context.Background(), proxyUrl, downloadUrl, fileName, userAgent, callback)
 }
 
-// 先测试是否可以直连，如果可以返回url
-// 再测试代理URL是否可用，如果可以返回代理前缀+url
-// 如果都不可用，返回failed，要求使用代理
+// TestGithub 测试GitHub连接，使用智能管理器选择最佳连接方式
+// url - 要访问的GitHub URL
+// proxy - 代理配置（已废弃，保留是为了向后兼容）
+// 返回值：
+//   - 如果连接成功，返回实际使用的URL（可能是原始URL或代理URL）
+//   - 如果连接失败，返回"failed"
 func TestGithub(url string, proxy string) string {
-	// 先测试是否可以直连
-	// ok, err := TestURLConnectionWithDefaultTimeout("", url)
-	// if err == nil && ok {
-	// 	return url
-	// }
-	if proxy != "" {
+	manager := github.GetManager()
+
+	// 获取最佳连接方式
+	access, err := manager.GetBestConnection()
+	if err != nil {
+		AppLogger.Warnf("[GitHub] 无法获取最佳连接: %v", err)
 		return "failed"
 	}
-	// 再测试代理URL是否可用
-	proxyUrl := fmt.Sprintf("%s%s", "https://gh.llkk.cc/", url)
-	ok, err := TestURLConnectionWithDefaultTimeout("", proxyUrl)
-	if err == nil && ok {
+
+	// 根据连接类型返回对应的URL
+	switch access.Type {
+	case github.ConnectionTypeDirect:
+		// 直连，直接返回原URL
+		return url
+	case github.ConnectionTypeProxy:
+		// 用户代理，返回代理URL
+		return url
+	case github.ConnectionTypeGitHubProxy:
+		// GitHub代理URL，使用硬编码的代理前缀
+		proxyUrl := fmt.Sprintf("%s%s", "https://gh.llkk.cc/", url)
 		return proxyUrl
+	default:
+		AppLogger.Warnf("[GitHub] 未知的连接类型: %s", access.Type)
+		return "failed"
 	}
-	// 如果都不可用，返回failed
-	return "failed"
 }

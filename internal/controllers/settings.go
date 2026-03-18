@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"Q115-STRM/internal/emby"
+	"Q115-STRM/internal/github"
 	"Q115-STRM/internal/helpers"
 	"Q115-STRM/internal/models"
 	"Q115-STRM/internal/synccron"
@@ -159,7 +160,7 @@ func UpdateHttpProxy(c *gin.Context) {
 		c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "更新HTTP代理设置失败", Data: nil})
 		return
 	}
-
+	github.UpdateConfig(httpProxy) // 更新GitHub配置
 	c.JSON(http.StatusOK, APIResponse[any]{Code: Success, Message: "更新HTTP代理设置成功", Data: nil})
 }
 

@@ -2,12 +2,11 @@
 package updater
 
 import (
+	"Q115-STRM/internal/github"
 	"Q115-STRM/internal/helpers"
-	"Q115-STRM/internal/models"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"runtime"
 	"sort"
 	"strings"
@@ -133,39 +132,23 @@ func (g *GitHubUpdater) CheckForUpdate() (*UpdateInfo, error) {
 // getReleases 获取所有 releases
 func (g *GitHubUpdater) getReleases() ([]GitHubRelease, error) {
 	apiUrl := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases", g.Owner, g.Repo)
-	proxyUrl := helpers.TestGithub(apiUrl, models.SettingsGlobal.HttpProxy)
-	if proxyUrl == "failed" {
-		helpers.AppLogger.Infof("使用自己设置的网络代理 %s 获取最新版本URL", models.SettingsGlobal.HttpProxy)
-	} else {
-		helpers.AppLogger.Infof("使用Github代理 https://gh.llkk.cc 获取最新版本URL")
-	}
-	var req *http.Request
-	var err error
-	if proxyUrl == "failed" {
-		// 构建使用http代理的请求
-		// 构建使用http代理的请求
-		proxyParsed, perr := url.Parse(models.SettingsGlobal.HttpProxy)
-		if perr != nil {
-			return nil, fmt.Errorf("解析代理地址失败: %w", perr)
-		}
-		g.HTTPClient.Transport = &http.Transport{Proxy: http.ProxyURL(proxyParsed)}
-		req, err = http.NewRequest("GET", apiUrl, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		req.Header.Set("User-Agent", g.Repo+"-updater")
-	} else {
-		req, err = http.NewRequest("GET", proxyUrl, nil)
-		if err != nil {
-			return nil, err
-		}
 
-		// 添加 GitHub API 相关 headers
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		req.Header.Set("User-Agent", g.Repo+"-updater")
+	// 使用GitHub管理器获取最佳客户端
+	githubManager := github.GetManager()
+	client, err := githubManager.GetClient()
+	if err != nil {
+		return nil, fmt.Errorf("获取GitHub客户端失败: %w", err)
 	}
-	resp, err := g.HTTPClient.Do(req)
+
+	// 使用管理器返回的客户端发起请求
+	req, err := http.NewRequest("GET", apiUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", g.Repo+"-updater")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
