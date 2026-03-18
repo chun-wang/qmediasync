@@ -66,7 +66,7 @@ func JWTAuthMiddleware() func(c *gin.Context) {
 		cookie, err := c.Request.Cookie("auth_token")
 		if err == nil && cookie.Value != "" {
 			tokenString = cookie.Value
-			helpers.AppLogger.Debugf("从 Cookie 获取 token")
+			// helpers.AppLogger.Debugf("从 Cookie 获取 token")
 		} else {
 			// 2. Cookie 不存在时，从 Authorization Header 获取
 			authHeader := c.Request.Header.Get("Authorization")
@@ -83,7 +83,7 @@ func JWTAuthMiddleware() func(c *gin.Context) {
 				return
 			}
 			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
-			helpers.AppLogger.Debugf("从 Authorization Header 获取 token")
+			// helpers.AppLogger.Debugf("从 Authorization Header 获取 token")
 		}
 		// helpers.AppLogger.Debugf("tokenString: %s", tokenString)
 		loginUser, err := ValidateJWT(tokenString)
