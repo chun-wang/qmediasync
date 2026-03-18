@@ -8,6 +8,7 @@ import (
 	"Q115-STRM/internal/controllers"
 	"Q115-STRM/internal/db"
 	"Q115-STRM/internal/db/database"
+	"Q115-STRM/internal/github"
 	"Q115-STRM/internal/helpers"
 	"Q115-STRM/internal/migrate"
 	"Q115-STRM/internal/models"
@@ -423,6 +424,8 @@ func initLogger() {
 func initOthers() {
 	helpers.InitEventBus() // 初始化事件总线
 	models.LoadSettings()  // 从数据库加载设置
+	// 初始化GitHub访问管理器
+	github.InitManager(models.SettingsGlobal.HttpProxy)
 	helpers.AppLogger.Infof("已加载配置，准备初始化115请求队列，线程数: %d", models.SettingsGlobal.FileDetailThreads)
 	qps := models.SettingsGlobal.FileDetailThreads
 	if qps <= 0 {
