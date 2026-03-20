@@ -16,7 +16,7 @@ jobs:
 
       # 步骤 1：拉取 GitHub 仓库代码
       - name: build project
-        run: build_and_release.sh -v vx.xx.xx
+        run: ./build_and_release.sh -v vx.xx.xx
         working-directory: ./build_scripts
 
       # 步骤 2：设置 Docker 构建环境
